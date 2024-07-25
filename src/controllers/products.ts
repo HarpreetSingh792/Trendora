@@ -1,37 +1,42 @@
 import { Request } from "express";
-import { TryCatch } from "../middlewares/error.js";
-import { SearchQuery, newProdReq, searchProdQuery } from "../types/products.js";
-import { ProductSchema } from "../models/products.js";
-import ErrorHandler from "../utils/uitlity-class.js";
-import { rm } from "fs";
 import { myCache } from "../index.js";
+import { rm } from "fs";
+import { TryCatch } from "../middlewares/error.js";
+import { ProductSchema } from "../models/products.js";
+import { SearchQuery, newProdReq, searchProdQuery } from "../types/products.js";
+import { deleteFromCloudinary, uploadCloudinary } from "../utils/cloudinary.js";
 import { invalidateCache } from "../utils/features.js";
+import ErrorHandler from "../utils/uitlity-class.js";
 
 // Admin can add new products using this controller function......
 export const NewProd = TryCatch(
   async (req: Request<{}, {}, newProdReq>, res, next) => {
-    const { name, price, stocks, category ,description} = req.body;
-    const photo = req.file;
-    if (!photo) return next(new ErrorHandler("Please Add Photo", 400));
+    const { name, price, stocks, category, description } = req.body;
+    const photos = req.files as Express.Multer.File[] | undefined;
+    if (!photos) return next(new ErrorHandler("Please Add Photo", 400));
 
-    if (!name || !price || !stocks || !category|| !description) {
-      rm(photo.path, () => {
-        console.log("Deleted");
-      });
+    if (!name || !price || !stocks || !category || !description) {
       return next(new ErrorHandler("Please enter all the fields", 400));
     }
 
+    if (photos.length < 1)
+      return next(new ErrorHandler("Please add atleast one Photo", 400));
+
+    if (photos.length > 5)
+      return next(new ErrorHandler("You can only upload 5 Photos", 400));
+
+    const photoUrl = await uploadCloudinary(photos);
     await ProductSchema.create({
       name,
       price,
       stocks,
       description,
       category: category.toLowerCase(),
-      photo: photo.path,
+      photos: photoUrl,
     });
 
-    // revalidating all the cache key's 
-    invalidateCache({product:true,admin:true});
+    // revalidating all the cache key's
+    invalidateCache({ product: true, admin: true });
     return res.status(201).json({
       success: true,
       message: "Product Created Successfully",
@@ -112,13 +117,17 @@ export const deleteProdById = TryCatch(async (req, res, next) => {
   const product = await ProductSchema.findById(id);
   if (!product)
     return next(new ErrorHandler("Product already deleted or not found", 404));
+  const ids = product.photos.map((photo) => photo.public_id);
+  
+  await deleteFromCloudinary(ids);
+  
   await product.deleteOne();
-  rm(product.photo, () => {
-    console.log("Deleted Photo asa well Successfully");
+  // revalidating all the cache key's
+  invalidateCache({
+    product: true,
+    admin: true,
+    productId: String(product._id),
   });
-
-  // revalidating all the cache key's 
-  invalidateCache({product:true,admin:true,productId:String(product._id)})
   return res.status(200).json({
     success: true,
     message: "Product Deleted Successfully!",
@@ -129,8 +138,8 @@ export const deleteProdById = TryCatch(async (req, res, next) => {
 export const updateProdById = TryCatch(
   async (req: Request<any, {}, newProdReq>, res, next) => {
     const { id } = req.params;
-    const { name, price, stocks, category,description } = req.body;
-    const photo = req.file;
+    const { name, price, stocks, category, description } = req.body;
+    const photos = req.files as Express.Multer.File[] | undefined;
     const product = await ProductSchema.findById(id);
     if (!product) return next(new ErrorHandler("Prdouct not found", 404));
     if (name) product.name = name;
@@ -138,16 +147,26 @@ export const updateProdById = TryCatch(
     if (stocks) product.stocks = stocks;
     if (category) product.category = category;
     if (description) product.description = description;
-    if (photo) {
-      rm(product.photo, () => {
-        console.log("Old Photo Deleted Successfully");
+    if (photos && photos.length > 0) {
+      const photosURL = await uploadCloudinary(photos);
+
+      const ids = product.photos.map((photo) => photo.public_id);
+
+      await deleteFromCloudinary(ids);
+
+      photosURL.map((i, idx) => {
+        product.photos[idx].public_id = i.public_id;
+        product.photos[idx].url = i.url;
       });
-      product.photo = photo.path;
     }
     await product.save();
 
-    // revalidating all the cache key's 
-    invalidateCache({product:true,admin:true,productId:String(product._id)})
+    // revalidating all the cache key's
+    invalidateCache({
+      product: true,
+      admin: true,
+      productId: String(product._id),
+    });
     return res.status(200).json({
       success: true,
       message: "Product updated successfully",

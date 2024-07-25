@@ -11,6 +11,7 @@ import { config } from "dotenv";
 import morgan from "morgan";
 import Stripe from "stripe";
 import cors from "cors";
+import { v2 as cloudinary } from "cloudinary";
 const app = express();
 export const myCache = new NodeCache();
 config({
@@ -19,6 +20,11 @@ config({
 const port = process.env.PORT || 4000;
 const stripeKey = process.env.STRIPE_KEY || "";
 export const stripe = new Stripe(stripeKey);
+cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 // Middleware
 app.use(express.json());
 app.use(morgan("dev"));

@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import { myCache } from "../index.js";
 import { ProductSchema } from "../models/products.js";
+import { Review } from "../models/reviews.js";
 export const connectDB = (uri) => {
     mongoose
         .connect(uri, {
@@ -66,6 +67,18 @@ export const getInventory = async ({ category, productCount, }) => {
         });
     });
     return categoryCount;
+};
+export const findAverageRatings = async (productId) => {
+    let totalRating = 0;
+    const reviews = await Review.find({ product: productId });
+    reviews.forEach(review => {
+        totalRating += review.ratings;
+    });
+    const averateRating = Math.floor(totalRating / reviews.length) || 0;
+    return {
+        numOfReviews: reviews.length,
+        ratings: averateRating,
+    };
 };
 export const getChartData = ({ length, docArr, today, property }) => {
     const data = new Array(length).fill(0);
